@@ -399,3 +399,189 @@ def IsingMutipleCpAmpNet(t1_list, t2_list, tc1_list, tc2_list, tc3_list, F_list,
 		outputs_list.append(cphase_pred)
 	model = keras.models.Model(inputs=input_im, outputs=outputs_list+[site_mask, energy])
 	return model
+
+
+########################################################################################
+# joint sensing and feature extraction network with complex visibility
+########################################################################################
+def IsingVisFeatureNet(t1, t2, n_ising_layers=5, slope_const=1e2, n_layers=3, n_hid=1000, sigma=None):
+	filt = 64
+	kern = 3
+	acti = None
+
+	tlib = {}                                                              
+	tind = 0
+	telescopes = np.concatenate([t1, t2])                                                               
+	for k in range(len(telescopes)):
+		if telescopes[k] not in tlib:
+			tlib[telescopes[k]] = tind 
+			tind += 1
+
+	if 'SPT'  not in telescopes:
+		tlib['SPT'] = tind
+		tind += 1
+	elif 'GLT'  not in telescopes:
+		tlib['GLT'] = tind
+		tind += 1
+
+	n_sites = tind
+
+	Fm1 = np.zeros((len(t1), n_sites))
+	Fm2 = np.zeros((len(t1), n_sites))
+	for k in range(len(t1)):
+		Fm1[k, tlib[t1[k]]] = 1
+		Fm2[k, tlib[t2[k]]] = 1
+	Fm1 = tf.constant(Fm1, dtype=tf.float32)
+	Fm2 = tf.constant(Fm2, dtype=tf.float32)
+
+
+	input_shape = (len(t1), )
+	vis = keras.layers.Input(shape=input_shape, dtype=tf.complex64, name='input')
+	vis_split = keras.layers.Lambda(hp.Lambda_split)(vis)
+
+	if sigma is not None:
+		vis_split = keras.layers.GaussianNoise(sigma)(vis_split)
+
+	ising_sample, energy= Ising_sampling2(output_dim=n_sites, name='ising',
+									my_initializer=Constant(0.1))(vis, n_layers=n_ising_layers, const=slope_const)
+
+	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(10), name='sampling')(ising_sample)
+
+	vis_mask = keras.layers.Lambda(hp.Lambda_vis_mask2(Fm1, Fm2), name='vis_mask')(site_mask)
+
+	vis_selected = keras.layers.Lambda(hp.Lambda_select0)([vis_mask, vis_split])
+
+	
+	vis_reshape = keras.layers.Reshape((2*len(t1), ))(vis_selected)
+
+	layer_input = vis_reshape
+	for k in range(n_layers):
+		hidden = keras.layers.Dense(n_hid, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+		hidden_act = keras.layers.ReLU()(hidden)
+		layer_input = keras.layers.BatchNormalization()(hidden_act)
+
+	# bh_class = keras.layers.Dense(2, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+	# bh_class = keras.layers.Softmax(axis=-1, name='bh_class')(bh_class)
+
+	# spin_class = keras.layers.Dense(7, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+	# spin_class = keras.layers.Softmax(axis=-1, name='spin_class')(spin_class)
+
+	combined_class = keras.layers.Dense(13, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+	combined_class = keras.layers.Softmax(axis=-1, name='combined_class')(combined_class)
+
+	# model = keras.models.Model(inputs=vis, outputs=[bh_class, spin_class, site_mask, energy])
+	model = keras.models.Model(inputs=vis, outputs=[combined_class, site_mask, energy])
+
+	return model
+
+
+########################################################################################
+# joint sensing and feature extraction network with amplitude and closure phase
+########################################################################################
+def IsingCpAmpFeatureNet(t1, t2, tc1, tc2, tc3, cphase_proj, n_ising_layers=5, slope_const=1e2, n_layers=3, n_hid=1000, sigma=None):
+	filt = 64
+	kern = 3
+	acti = None
+
+	tlib = {}                                                              
+	tind = 0
+	telescopes = np.concatenate([t1, t2])                                                               
+	for k in range(len(telescopes)):
+		if telescopes[k] not in tlib:
+			tlib[telescopes[k]] = tind 
+			tind += 1
+
+	if 'SPT'  not in telescopes:
+		tlib['SPT'] = tind
+		tind += 1
+	elif 'GLT'  not in telescopes:
+		tlib['GLT'] = tind
+		tind += 1
+
+	n_sites = tind
+
+
+	Fm1 = np.zeros((len(t1), n_sites))
+	Fm2 = np.zeros((len(t1), n_sites))
+	for k in range(len(t1)):
+		Fm1[k, tlib[t1[k]]] = 1
+		Fm2[k, tlib[t2[k]]] = 1
+	Fm1 = tf.constant(Fm1, dtype=tf.float32)
+	Fm2 = tf.constant(Fm2, dtype=tf.float32)
+
+
+	Fcm1 = np.zeros((len(tc1), n_sites))
+	Fcm2 = np.zeros((len(tc1), n_sites))
+	Fcm3 = np.zeros((len(tc1), n_sites))
+	for k in range(len(tc1)):
+		Fcm1[k, tlib[tc1[k]]] = 1
+		Fcm2[k, tlib[tc2[k]]] = 1
+		Fcm3[k, tlib[tc3[k]]] = 1
+	Fcm1 = tf.constant(Fcm1, dtype=tf.float32)
+	Fcm2 = tf.constant(Fcm2, dtype=tf.float32)
+	Fcm3 = tf.constant(Fcm3, dtype=tf.float32)
+
+
+	input_shape = (len(t1), )
+	vis = keras.layers.Input(shape=input_shape, dtype=tf.complex64, name='input')
+	
+	if sigma is not None:
+		vis_split = keras.layers.Lambda(hp.Lambda_split)(vis)
+		vis_split = keras.layers.GaussianNoise(sigma)(vis_split)
+		vis = keras.layers.Lambda(hp.Lambda_combine)(vis_split)
+
+		vis_amp = keras.layers.Lambda(hp.Lambda_amp, name='vis_amp')(vis)
+
+		vis_angle_noisy = keras.layers.Lambda(hp.Lambda_angle)(vis)
+		cphase = keras.layers.Lambda(hp.Lambda_cphase(cphase_proj))(vis_angle_noisy)
+
+	else:
+		vis_amp = keras.layers.Lambda(hp.Lambda_amp, name='vis_amp')(vis)
+		vis_angle = keras.layers.Lambda(hp.Lambda_angle)(vis)
+		cphase = keras.layers.Lambda(hp.Lambda_cphase(cphase_proj))(vis_angle)
+
+
+
+	ising_sample, energy= Ising_sampling2(output_dim=n_sites, name='ising',
+									my_initializer=Constant(0.1))(vis, n_layers=n_ising_layers, const=slope_const)
+
+	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(10), name='sampling')(ising_sample)
+
+
+	vis_mask = keras.layers.Lambda(hp.Lambda_vis_mask2(Fm1, Fm2), name='vis_mask')(site_mask)
+	cphase_mask = keras.layers.Lambda(hp.Lambda_cphase_mask2(Fcm1, Fcm2, Fcm3), name='cphase_mask')(site_mask)
+
+	vis_amp_selected = keras.layers.Lambda(hp.Lambda_select)([vis_mask, vis_amp])
+	cphase_selected = keras.layers.Lambda(hp.Lambda_select)([cphase_mask, cphase])
+
+
+	# Reconstruction section
+	inputs = keras.layers.concatenate([vis_amp_selected, cphase_selected], -1)
+
+	vis_pred = keras.layers.Dense(1000, activation=None, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None), name='dense_vis1')(inputs)
+	vis_pred = keras.layers.LeakyReLU(alpha=0.3, name='acti_vis1')(vis_pred)
+	vis_pred = keras.layers.BatchNormalization()(vis_pred)
+	vis_pred = keras.layers.Dense(1000, activation=None, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None), name='dense_vis2')(vis_pred)
+	vis_pred = keras.layers.LeakyReLU(alpha=0.3, name='acti_vis2')(vis_pred)
+	vis_pred = keras.layers.BatchNormalization()(vis_pred)
+	vis_angle = keras.layers.Dense(len(t1), activation=None, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None), name='dense_vis3')(vis_pred)
+	layer_input = keras.layers.Lambda(hp.Lambda_Vis, name='vis_pred')([vis_amp_selected, vis_angle])
+
+	for k in range(n_layers):
+		hidden = keras.layers.Dense(n_hid, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+		hidden_act = keras.layers.ReLU()(hidden)
+		layer_input = keras.layers.BatchNormalization()(hidden_act)
+
+	# bh_class = keras.layers.Dense(2, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+	# bh_class = keras.layers.Softmax(axis=-1, name='bh_class')(bh_class)
+
+	# spin_class = keras.layers.Dense(7, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+	# spin_class = keras.layers.Softmax(axis=-1, name='spin_class')(spin_class)
+
+	combined_class = keras.layers.Dense(13, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+	combined_class = keras.layers.Softmax(axis=-1, name='combined_class')(combined_class)
+
+	# model = keras.models.Model(inputs=vis, outputs=[bh_class, spin_class, site_mask, energy])
+	model = keras.models.Model(inputs=vis, outputs=[combined_class, site_mask, energy])
+
+	return model
