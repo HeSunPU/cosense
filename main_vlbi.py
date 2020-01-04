@@ -779,9 +779,9 @@ if __name__ == '__main__':
 	if file_index[0:3] == 'vis':
 		if target == 'both':
 			target_list = ['sgrA', 'm87']
-			model = Train_IsingMutipleVisNet(eht_array, target_list, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name=savefile_name)
+			model = Train_IsingMutipleVisNet(eht_array, target_list, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name)
 		else:
-			model = Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name=savefile_name)
+			model = Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name)
 
 	###############################################################################
 	# closure phase and amplitude
@@ -789,22 +789,22 @@ if __name__ == '__main__':
 	if file_index[0:5] == 'cpamp':
 		if target == 'both':
 			target_list = ['sgrA', 'm87']
-			model = Train_IsingMutipleCpAmpNet(eht_array, target_list, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name=savefile_name)
+			model = Train_IsingMutipleCpAmpNet(eht_array, target_list, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name)
 		else:
-			model = Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name=savefile_name)
+			model = Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name)
 
 
 	###############################################################################
 	# complex visibility feature
 	###############################################################################
 	if file_index[0:10] == 'featurevis':
-		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name=savefile_name, network='vis')
+		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name, network='vis')
 
 	###############################################################################
 	# closure phase and amplitude feature
 	###############################################################################
 	if file_index[0:12] == 'featurecpamp':
-		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name=savefile_name, network='cpamp')
+		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name, network='cpamp')
 
 	# Q_vec = model.get_layer('ising').get_weights()[0]                                                                                                                
 	# delta = model.get_layer('ising').get_weights()[1] 

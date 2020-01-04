@@ -60,6 +60,8 @@ def IsingVisNet(t1, t2, F, n_ising_layers=5, slope_const=1e2, sigma=None):
 
 	ising_sample, energy= Ising_sampling2(output_dim=n_sites, name='ising',
 									my_initializer=Constant(0.1))(input_im, n_layers=n_ising_layers, const=slope_const)
+	# ising_sample, energy= Ising_sampling(output_dim=n_sites, name='ising',
+	# 								my_initializer=Constant(0.1))(input_im, n_layers=n_ising_layers, const=slope_const)
 	
 	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(10), name='sampling')(ising_sample)
 

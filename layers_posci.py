@@ -122,7 +122,33 @@ def Lambda_intermat(dim):
         return tf.transpose(M) + M
     return func
 
-def Lambda_gibbs_layer3(delta, M, dim, const = 10, first=0):
+def Lambda_ising_energy(M, delta):
+    def func(x):
+        return tf.reduce_sum(0.5 * tf.matmul(x, M) * x  + delta * x, -1)
+    return func
+
+
+# def Lambda_gibbs_layer3(delta, M, dim, const = 10, first=0):
+#     def func(inputs):
+#         x = inputs[0:dim]
+#         u = []
+#         for k in range(dim):
+#             u.append(tf.random.uniform(shape=tf.shape(x[k])))
+#         x_new = x
+#         order_list = list(np.random.permutation(dim))
+#         for k in order_list:
+#             k = k % dim
+#             alpha = delta[k]*tf.ones_like(x[k])
+#             for j in range(k):
+#                 alpha += M[k, j] * x_new[j]
+#             for j in range(k+1, dim):
+#                 alpha += M[k, j] * x[j] 
+#             x_new[k] = tf.tanh(const*(tf.exp(alpha) / (tf.exp(alpha)+tf.exp(-alpha)) - u[k]))
+#         return x_new
+#     return func
+
+
+def Lambda_gibbs_layer2(delta, M, dim, const = 10):
     def func(inputs):
         x = inputs[0:dim]
         u = []
@@ -130,24 +156,25 @@ def Lambda_gibbs_layer3(delta, M, dim, const = 10, first=0):
             u.append(tf.random.uniform(shape=tf.shape(x[k])))
         x_new = x
         order_list = list(np.random.permutation(dim))
-        for k in order_list:
-            k = k % dim
+        for i in range(dim):
+            k = order_list[i] % dim
+            updated_indices = order_list[0:i]
+            non_updated_indices = order_list[i+1:]
             alpha = delta[k]*tf.ones_like(x[k])
-            for j in range(k):
+            for j in updated_indices:
                 alpha += M[k, j] * x_new[j]
-            for j in range(k+1, dim):
+            for j in non_updated_indices:
                 alpha += M[k, j] * x[j] 
             x_new[k] = tf.tanh(const*(tf.exp(alpha) / (tf.exp(alpha)+tf.exp(-alpha)) - u[k]))
         return x_new
-    return func
 
-def Lambda_ising_energy(M, delta):
-    def func(x):
-        return tf.reduce_sum(0.5 * tf.matmul(x, M) * x  + delta * x, -1)
     return func
 
 
 class Ising_sampling2(Layer):
+    '''
+    Gibbs sampling layer
+    '''
     def __init__(self, output_dim=16, my_initializer=RandomUniform(minval=-1, maxval=1, seed=None), **kwargs):
         self.initializer = my_initializer
         self.output_dim = output_dim
@@ -178,10 +205,12 @@ class Ising_sampling2(Layer):
             x.append(K.sign(random_seeds[k]))
             # x.append(K.tanh(const * random_seeds[k]))
         for k in range(1, n_layers+1):
-            # x = Lambda(Lambda_gibbs_layer(self.delta, self.M, self.output_dim, const))(x)
-            x = Lambda(Lambda_gibbs_layer3(self.delta, self.M, self.output_dim, const, (k-1)%2))(x)
+            x = Lambda(Lambda_gibbs_layer2(self.delta, self.M, self.output_dim, const))(x)
         z = K.concatenate(x, -1)
         energy = Lambda(Lambda_ising_energy(self.M, self.delta))(z)
         return [z, energy]
     def compute_output_shape(self, input_shape):
         return [(input_shape[0], self.output_dim), (input_shape[0], )]
+
+
+
