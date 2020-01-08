@@ -13,3 +13,14 @@ Further mathematical and implementation details are described in our paper:
 }
 ```
 If you make use of the code, please cite the paper in any resulting publications.
+
+## Setup
+The POSCI package is developed based on Python package "numpy", "tensorflow" and "keras".
+
+It has been tested for a very long baseline interferometry (VLBI) array design problem using Python "eht-imaging" package.
+
+## Run a VLBI array design test
+```
+python main_vlbi.py array target lr epoch weight1 weight2 resolution fov sefd flux modeltype
+```
+where "array" represents the potential telescopes we are selecting from, "target" represents the science target ("sgrA" or "m87"), "lr" and "epoch" are the learning rate and number of epochs for training the auto-encoder, "weight1" and "weight2" are weights that respectively balance the sparsity and diversity loss, "resolution" is the goal reconstruction resolution, "fov" is the target field of view, "sefd" is the coefficient of the telescopes' thermal flux (0 stands for no thermal noise, 1 stands for site-varying thermal noises, 2 stands for site-equivalent thermal noises), "flux" represents whether the flux of training images are constant (0 stands for varying flux, 1 stands for constant flux) and "modeltype" defines the architecture of the reconstructio network ("vis" stands for reconstruction using complex visibilities, and "cpamp" stands for reconstruction using closure phase and visibility amplitude).
