@@ -23,7 +23,7 @@ It has been tested for a very long baseline interferometry (VLBI) array design p
 ```
 python main_vlbi.py array target lr epoch weight1 weight2 resolution fov sefd flux modeltype
 ```
-where "array" represents the potential telescopes we are selecting from, 
+"array" represents the potential telescopes we are selecting from, 
 
 "target" represents the science target ("sgrA" or "m87"), 
 
@@ -39,4 +39,4 @@ where "array" represents the potential telescopes we are selecting from,
 
 "flux" represents whether the flux of training images are constant (0 stands for varying flux, 1 stands for constant flux),
 
-and "modeltype" defines the architecture of the reconstructio network ("vis" stands for reconstruction using complex visibilities, and "cpamp" stands for reconstruction using closure phase and visibility amplitude).
+"modeltype" defines the architecture of the reconstructio network ("vis" stands for reconstruction using complex visibilities, and "cpamp" stands for reconstruction using closure phase and visibility amplitude).
