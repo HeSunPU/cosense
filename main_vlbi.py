@@ -1,5 +1,6 @@
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 import tensorflow as tf
 from keras.backend.tensorflow_backend import set_session
 from keras.callbacks import ModelCheckpoint
@@ -17,7 +18,7 @@ from keras.datasets import mnist
 
 # from loupe import models_vlbi, layers_vlbi # loupe package
 import ehtim as eh # eht imaging package
-import matplotlib.pyplot as plt
+
 from ehtim.observing.obs_helpers import *
 from scipy.ndimage import gaussian_filter
 import skimage.transform
@@ -26,12 +27,13 @@ import csv
 import sys
 import datetime
 import warnings
-import numpy as np
 
 
 from models_posci import IsingVisNet, IsingCpAmpNet, IsingMutipleVisNet, IsingMutipleCpAmpNet, IsingVisFeatureNet, IsingCpAmpFeatureNet
 from losses_posci import site_sparsity, energy, Lambda_similarity
 from data_augmentation import elastic_transform
+
+import gc
 
 # mute the verbose warnings
 tf.logging.set_verbosity(tf.logging.ERROR)
@@ -48,7 +50,7 @@ set_session(tf.Session(config=config))
 
 plt.ion()
 
-
+nsamp = 10000
 def Prepare_EHT_Data(fov_param, flux_label, blur_param, sefd_param, eht_array='eht2019', target='m87', data_augmentation=False, npix=32):
 	"""
     Prepare the EHT training data for learning a probabilistic sensing for computational imaging!
@@ -184,7 +186,7 @@ def Prepare_EHT_Data(fov_param, flux_label, blur_param, sefd_param, eht_array='e
 	# load the data
 	###############################################################################
 
-	nsamp = 10000
+	# nsamp = 10000
 	
 	(x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
 	(x_train_mnist, y_train_mnist), (x_test_mnist, y_test_mnist) = mnist.load_data()
@@ -207,12 +209,12 @@ def Prepare_EHT_Data(fov_param, flux_label, blur_param, sefd_param, eht_array='e
 	xdata_mnist = np.pad(x_train_mnist, ((0,0), (2,2), (2,2)), 'constant')  # get to 32x32
 	xdata_mnist = xdata_mnist[0:nsamp]
 	xdata_mnist = xdata_mnist[..., np.newaxis]/255
-	xdata[7000::] = xdata_mnist[0:3000]
-	for k in range(7000, nsamp):
+	xdata[int(0.7*nsamp)::] = xdata_mnist[0:int(0.3*nsamp)]
+	for k in range(int(0.7*nsamp), nsamp):
 		xdata[k] = 2.2 * gaussian_filter(xdata[k], 2)
 
 	res = obs.res()
-	for k in range(7000, xdata.shape[0]):
+	for k in range(int(0.7*nsamp), xdata.shape[0]):
 		simim.imvec = xdata[k, :, :, :].reshape((-1, 1))
 		im_out = simim.blur_circ(0.3*res)
 		xdata[k, :, :, 0] = im_out.imvec.reshape((32, 32))
@@ -258,7 +260,7 @@ def Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd
 	###############################################################################
 	# define the model
 	###############################################################################
-	nsamp = 10000
+	# nsamp = 10000
 	
 	model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
 	
@@ -291,6 +293,8 @@ def Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd
 	for key, val in history.history.items():
 		w.writerow([key, val])
 
+	del history
+
 	return model
 
 
@@ -304,11 +308,13 @@ def Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, se
 	###############################################################################
 	# define the model
 	###############################################################################
-	nsamp = 10000
+	# nsamp = 10000
 	
 	# model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3)
 	model = IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
 	
+
+
 	adam_opt = keras.optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, amsgrad=False)
 
 	recon_weight = 1.0
@@ -341,6 +347,12 @@ def Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, se
 	w = csv.writer(open(os.path.join(models_dir, 'history_'+savefile_name+'.csv'), 'w'))
 	for key, val in history.history.items():
 		w.writerow([key, val])
+
+	K.clear_session()
+
+	del history, checkpoint, adam_opt
+
+	del xdata, xdata_blur, t1, t2, F, tc1, tc2, tc3, F_cphase, cphase_proj, sigma
 
 	return model
 
@@ -378,7 +390,7 @@ def Train_IsingMutipleVisNet(eht_array, target_list, fov_param, flux_label, blur
 	###############################################################################
 	# define the model
 	###############################################################################
-	nsamp = 10000
+	# nsamp = 10000
 	
 	# model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
 	model = IsingMutipleVisNet(t1_list, t2_list, F_list, n_ising_layers=5, slope_const=1e2, sigma=sigma)
@@ -426,6 +438,8 @@ def Train_IsingMutipleVisNet(eht_array, target_list, fov_param, flux_label, blur
 	for key, val in history.history.items():
 		w.writerow([key, val])
 
+	del history
+
 	return model
 
 
@@ -463,7 +477,7 @@ def Train_IsingMutipleCpAmpNet(eht_array, target_list, fov_param, flux_label, bl
 	###############################################################################
 	# define the model
 	###############################################################################
-	nsamp = 10000
+	# nsamp = 10000
 	
 	model = IsingMutipleCpAmpNet(t1_list, t2_list, tc1_list, tc2_list, tc3_list, F_list, F_cphase_list, cphase_proj_list, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
 	
@@ -511,6 +525,8 @@ def Train_IsingMutipleCpAmpNet(eht_array, target_list, fov_param, flux_label, bl
 	w = csv.writer(open(os.path.join(models_dir, 'history_'+savefile_name+'.csv'), 'w'))
 	for key, val in history.history.items():
 		w.writerow([key, val])
+
+	del history
 
 	return model
 
@@ -683,7 +699,7 @@ def Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sa
 	flux_label = 1
 	blur_param = 1	
 	# vis_shuffle, spin_shuffle, class_shuffle, t1, t2, sigma = Prepare_BlackHole_Feature_Data(sefd_param)
-	vis_shuffle, combined_class_shuffle, t1, t2, tc1, tc2, tc3, cphase_proj, sigma, _ = Prepare_BlackHole_Feature_Data(sefd_param)
+	vis_shuffle, combined_class_shuffle, t1, t2, tc1, tc2, tc3, cphase_proj, sigma, combined_class_unique = Prepare_BlackHole_Feature_Data(sefd_param)
 	n_sites = np.unique(np.concatenate([t1, t2])).shape[0] + 1
 
 	nsamp = vis_shuffle.shape[0]
@@ -737,6 +753,8 @@ def Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sa
 	for key, val in history.history.items():
 		w.writerow([key, val])
 
+	del history
+
 	return model
 
 
@@ -772,7 +790,6 @@ if __name__ == '__main__':
 
 	savefile_name = eht_array+'_'+target+'_'+file_index+'_sample'+str(sample_weight)+'_ising'+str(ising_weight)+'_blur'+str(blur_param)+'_fov'+str(fov_param)+'_sefd'+str(sefd_param)+'_flux'+str(flux_label)
 
-
 	###############################################################################
 	# complex visibility
 	###############################################################################
@@ -806,6 +823,31 @@ if __name__ == '__main__':
 	if file_index[0:12] == 'featurecpamp':
 		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name, network='cpamp')
 
+
+	del model
+	for k in range(20):
+		gc.collect()
+
+
+	# eht_array = 'eht2019'
+	# target = 'm87'#'both'#
+	# lr = 0.001#0.001
+	# nb_epochs_train = 200
+	# sample_weight = 0.2#0.005
+	# ising_weight = 0.2#0.005
+	# blur_param = 0.75
+	# fov_param = 100.0
+	# sefd_param = 0
+	# flux_label = 1
+	# file_index = 'featurevis1'#'featurecpamp2'#
+
+	# savefile_name = eht_array+'_'+target+'_'+file_index+'_sample'+str(sample_weight)+'_ising'+str(ising_weight)+'_blur'+str(blur_param)+'_fov'+str(fov_param)+'_sefd'+str(sefd_param)+'_flux'+str(flux_label)
+
+	# model = IsingCpAmpFeatureNet(t1, t2, tc1, tc2, tc3, cphase_proj, n_ising_layers=5, slope_const=3, n_layers=3, n_hid=200, sigma=sigma)
+	# model = IsingVisFeatureNet(t1, t2, n_ising_layers=3, slope_const=3, n_layers=3, n_hid=200, sigma=sigma)
+	# models_dir = '../joint_opt/models/anti-aliasing/01032020/'#'../models/anti-aliasing/11212019/'#'../models/anti-aliasing/11202019/'#'../models/anti-aliasing/11162019/'#'../models/anti-aliasing/11142019/'
+	# modelname = os.path.join(models_dir, savefile_name+'best'+'.hdf5')
+	# model.load_weights(modelname)
 	# Q_vec = model.get_layer('ising').get_weights()[0]                                                                                                                
 	# delta = model.get_layer('ising').get_weights()[1] 
 	# n_sites = len(delta)
@@ -853,16 +895,18 @@ if __name__ == '__main__':
 	# plt.yticks(range(len(tlib_list)), list(tlib_list), size='small', fontsize=12)
 	# plt.ylim(-0.5, n_sites-0.5)
 
-	# combined_class_prob, mask_pred, energy_pred = model.predict(vis_shuffle)
 
-	# class_true = np.argmax(combined_class_shuffle, 1)
-	# class_pred = np.argmax(combined_class_prob, 1)
+	# combined_class_prob, mask_pred, energy_pred = model.predict(np.concatenate([vis_shuffle[-900::]]*5, 0))
 
-	# val_mask_pred = mask_pred[-900:]
-	# class_accuracy = np.sum(class_pred[-900:] == class_true[-900:])/900
+	# class_true = np.argmax(np.concatenate([combined_class_shuffle[-900::]]*5, 0), 1)
+	# class_pred = np.argmax(np.concatenate([combined_class_prob[-900::]]*5, 0), 1)
 
-	# val_true_index = np.where(class_pred[-900:] == class_true[-900:])[0]
-	# val_false_index = np.where(class_pred[-900:] != class_true[-900:])[0]
+	# val_mask_pred = mask_pred
+	# class_accuracy = np.sum(class_pred == class_true)/len(class_pred)
+	# print('Prediction Accuracy {}'.format(class_accuracy))
+
+	# val_true_index = np.where(class_pred == class_true)[0]
+	# val_false_index = np.where(class_pred != class_true)[0]
 
 	# mask_true_pred = np.sum(mask_pred, 1)[val_true_index]
 	# mask_false_pred = np.sum(mask_pred, 1)[val_false_index]
@@ -870,7 +914,7 @@ if __name__ == '__main__':
 	# from sklearn.metrics import confusion_matrix
 
 	# class_label = [combined_class_unique[k][0]+combined_class_unique[k][1] for k in range(len(combined_class_unique))]
-	# cmat = confusion_matrix(class_true[-900:], class_pred[-900:])
+	# cmat = confusion_matrix(class_true, class_pred)
 
 	# cmat_norm = np.array(1.0*cmat)
 	# for k in range(cmat.shape[0]):
@@ -887,3 +931,19 @@ if __name__ == '__main__':
 	# plt.ylabel('True Label')
 	# plt.ylim(-0.5, cmat.shape[0]-0.5)
 
+
+	# plt.figure(), plt.imshow(cmat), plt.set_cmap('jet')
+	# cb = plt.colorbar()
+	# cb.ax.tick_params(labelsize=14)
+	# plt.title(r'Confusion Matrix', fontsize=18)
+	# # plt.clim(0, 1)
+	# plt.xticks(range(len(class_label)), class_label, size='small', rotation=35, fontsize=12)
+	# plt.yticks(range(len(class_label)), class_label, size='small', fontsize=12)
+	# plt.xlabel('Predicted Label')
+	# plt.ylabel('True Label')
+	# plt.ylim(-0.5, cmat.shape[0]-0.5)
+
+
+	# train_class_true = np.argmax(combined_class_shuffle[0:-900], 1)
+	# train_class_count = [np.sum(train_class_true==k) for k in range(13)]
+	# plt.figure(), plt.plot(train_class_count)
