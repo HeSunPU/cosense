@@ -239,6 +239,9 @@ def IsingMutipleVisNet(t1_list, t2_list, F_list, n_ising_layers=5, slope_const=1
 
 	outputs_list = []
 	for k in range(len(t1_list)):
+		F = F_list[k]
+		Fm1 = Fm1_list[k]
+		Fm2 = Fm2_list[k]
 		vis= keras.layers.Lambda(hp.Lambda_dft(F))(input_im)
 		if sigma is not None:
 			vis = keras.layers.GaussianNoise(sigma)(vis)
