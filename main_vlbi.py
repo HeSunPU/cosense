@@ -40,6 +40,7 @@ tf.logging.set_verbosity(tf.logging.ERROR)
 warnings.filterwarnings("ignore")
 
 # initialize GPU
+K.clear_session()
 gpu_id = 0
 gpu = '/gpu:' + str(gpu_id)
 os.environ["CUDA_VISIBLE_DEVICES"] = str(gpu_id)
@@ -48,9 +49,10 @@ config.gpu_options.allow_growth = True
 config.allow_soft_placement = True
 set_session(tf.Session(config=config))
 
+
 plt.ion()
 
-nsamp = 10000
+nsamp = 100000
 def Prepare_EHT_Data(fov_param, flux_label, blur_param, sefd_param, eht_array='eht2019', target='m87', data_augmentation=False, npix=32):
 	"""
     Prepare the EHT training data for learning a probabilistic sensing for computational imaging!
@@ -187,37 +189,40 @@ def Prepare_EHT_Data(fov_param, flux_label, blur_param, sefd_param, eht_array='e
 	###############################################################################
 
 	# nsamp = 10000
-	
+
 	(x_train, y_train), (x_test, y_test) = fashion_mnist.load_data()
 	(x_train_mnist, y_train_mnist), (x_test_mnist, y_test_mnist) = mnist.load_data()
 
-	xdata = np.pad(x_train, ((0,0), (2,2), (2,2)), 'constant')  # get to 32x32
-	xdata = xdata[0:nsamp]
+	# xdata_train = 1.0*x_train[0:int(nsamp*0.7)]
+	xdata_train = 1.0*x_train[[k%60000 for k in range(int(nsamp*0.7))]]
 	if data_augmentation:
-		rot_random = np.random.rand(nsamp) * 360
-		xdata = np.array(1.0*x_train[0:nsamp])
-		for k in range(nsamp):
-			im = np.expand_dims(xdata[k], -1)
+		rot_random = np.random.rand(int(nsamp*0.7)) * 360
+		for k in range(int(nsamp*0.7)):
+			im = np.expand_dims(xdata_train[k], -1)
 			im = np.concatenate([im, np.zeros(im.shape)], -1)
 			# im_deform = elastic_transform(im, 15, 2, 0.5)
 			im_deform = elastic_transform(im, 20, 2, 0.5)
-			xdata[k] = im_deform[:, :, 0]
-			xdata[k] = skimage.transform.rotate(xdata[k], rot_random[k])
-		xdata = np.pad(xdata, ((0,0), (2,2), (2,2)), 'constant')  # get to 32x32
+			xdata_train[k] = im_deform[:, :, 0]
+			xdata_train[k] = skimage.transform.rotate(xdata_train[k], rot_random[k])
+		xdata_train = np.pad(xdata_train, ((0,0), (2,2), (2,2)), 'constant')  # get to 32x32
 
-	xdata = xdata[..., np.newaxis]/255
-	xdata_mnist = np.pad(x_train_mnist, ((0,0), (2,2), (2,2)), 'constant')  # get to 32x32
-	xdata_mnist = xdata_mnist[0:nsamp]
-	xdata_mnist = xdata_mnist[..., np.newaxis]/255
-	xdata[int(0.7*nsamp)::] = xdata_mnist[0:int(0.3*nsamp)]
-	for k in range(int(0.7*nsamp), nsamp):
-		xdata[k] = 2.2 * gaussian_filter(xdata[k], 2)
+	xdata_train = xdata_train[..., np.newaxis]/255
 
-	res = obs.res()
-	for k in range(int(0.7*nsamp), xdata.shape[0]):
-		simim.imvec = xdata[k, :, :, :].reshape((-1, 1))
-		im_out = simim.blur_circ(0.3*res)
-		xdata[k, :, :, 0] = im_out.imvec.reshape((32, 32))
+
+	# xdata_test = 1.0*x_train_mnist[0:int(nsamp*0.3)]
+	xdata_test = 1.0*x_train_mnist[[k%60000 for k in range(int(nsamp*0.3))]]
+	xdata_test = np.pad(xdata_test, ((0,0), (2,2), (2,2)), 'constant')  # get to 32x32
+	xdata_test = xdata_test[..., np.newaxis]/255
+	for k in range(int(0.3*nsamp)):
+		xdata_test[k] = 2.2 * gaussian_filter(xdata_test[k], 2)
+
+	# res = obs.res()
+	# for k in range(int(0.3*nsamp)):
+	# 	simim.imvec = xdata_test[k, :, :, :].reshape((-1, 1))
+	# 	im_out = simim.blur_circ(0.3*res)
+	# 	xdata_test[k, :, :, 0] = im_out.imvec.reshape((32, 32))
+
+	xdata = np.concatenate([xdata_train, xdata_test], 0)
 
 	###############################################################################
 	# define the flux label
@@ -261,7 +266,7 @@ def Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd
 	# define the model
 	###############################################################################
 	# nsamp = 10000
-	
+
 	model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
 	
 	adam_opt = keras.optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, amsgrad=False)
@@ -309,10 +314,10 @@ def Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, se
 	# define the model
 	###############################################################################
 	# nsamp = 10000
-	
+
 	# model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3)
 	model = IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
-	
+
 
 
 	adam_opt = keras.optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, amsgrad=False)
@@ -438,7 +443,8 @@ def Train_IsingMutipleVisNet(eht_array, target_list, fov_param, flux_label, blur
 	for key, val in history.history.items():
 		w.writerow([key, val])
 
-	del history
+	del history, checkpoint
+	del xdata, xdata_blur, t1, t2, F, tc1, tc2, tc3, F_cphase, cphase_proj, sigma
 
 	return model
 
@@ -777,28 +783,29 @@ if __name__ == '__main__':
 	file_index = sys.argv[11]
 
 	# eht_array = 'eht2019'
-	# target = 'm87'#'both'#
+	# target = 'sgrA'#'m87'#'both'#
 	# lr = 0.001#0.001
-	# nb_epochs_train = 200
-	# sample_weight = 0.2#0.005
-	# ising_weight = 0.2#0.005
-	# blur_param = 0.75
-	# fov_param = 100
+	# nb_epochs_train = 50
+	# sample_weight = 0.005
+	# ising_weight = 0.005
+	# blur_param = 0.25
+	# fov_param = 100.0
 	# sefd_param = 0
 	# flux_label = 1
-	# file_index = 'featurecpamp1'#'featurevis1'
+	# file_index = 'cpamp7'#'featurecpamp1'#'featurevis1'
 
 	savefile_name = eht_array+'_'+target+'_'+file_index+'_sample'+str(sample_weight)+'_ising'+str(ising_weight)+'_blur'+str(blur_param)+'_fov'+str(fov_param)+'_sefd'+str(sefd_param)+'_flux'+str(flux_label)
 
+	models_dir = '../joint_opt/models/anti-aliasing/01092020/'
 	###############################################################################
 	# complex visibility
 	###############################################################################
 	if file_index[0:3] == 'vis':
 		if target == 'both':
 			target_list = ['sgrA', 'm87']
-			model = Train_IsingMutipleVisNet(eht_array, target_list, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name)
+			model = Train_IsingMutipleVisNet(eht_array, target_list, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name)
 		else:
-			model = Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name)
+			model = Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name)
 
 	###############################################################################
 	# closure phase and amplitude
@@ -806,22 +813,22 @@ if __name__ == '__main__':
 	if file_index[0:5] == 'cpamp':
 		if target == 'both':
 			target_list = ['sgrA', 'm87']
-			model = Train_IsingMutipleCpAmpNet(eht_array, target_list, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name)
+			model = Train_IsingMutipleCpAmpNet(eht_array, target_list, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name)
 		else:
-			model = Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name)
+			model = Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name)
 
 
 	###############################################################################
 	# complex visibility feature
 	###############################################################################
 	if file_index[0:10] == 'featurevis':
-		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name, network='vis')
+		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name, network='vis')
 
 	###############################################################################
 	# closure phase and amplitude feature
 	###############################################################################
 	if file_index[0:12] == 'featurecpamp':
-		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/01032020/', savefile_name=savefile_name, network='cpamp')
+		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name, network='cpamp')
 
 
 	del model
