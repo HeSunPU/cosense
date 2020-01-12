@@ -27,8 +27,8 @@ def Lambda_dft(F):
 		# compute the Fourier domain measurements
 		F_tensor = tf.constant(F, dtype=tf.complex64)
 		vis = tf.matmul(F_tensor, input_im_reshape)
-		vis_r = tf.real(vis)
-		vis_i = tf.imag(vis)
+		vis_r = tf.math.real(vis)
+		vis_i = tf.math.imag(vis)
 		# concatenate the real and imag parts of the visibility
 		vis_con = tf.concat([vis_r, vis_i], -1)
 		return tf.cast(vis_con, dtype=tf.float32)
@@ -72,8 +72,8 @@ def Lambda_binary_convert(const=10):
 
 
 def Lambda_split(vis):
-	vis_r = tf.real(vis)
-	vis_i = tf.imag(vis)
+	vis_r = tf.math.real(vis)
+	vis_i = tf.math.imag(vis)
 	vis_con = tf.concat([tf.expand_dims(vis_r, -1), tf.expand_dims(vis_i, -1)], -1)
 	return tf.cast(vis_con, dtype=tf.float32)
 
@@ -90,7 +90,7 @@ def Lambda_amp(x):
 
 
 def Lambda_angle(vis):
-	return tf.angle(vis)
+	return tf.math.angle(vis)
 
 
 def Lambda_Vis(x):
@@ -98,7 +98,7 @@ def Lambda_Vis(x):
 	amp = tf.cast(amp, tf.complex64)
 	angle = tf.cast(angle, tf.complex64) * np.pi / 180
 	vis = amp * tf.exp(1j * angle)
-	return tf.concat([tf.real(vis), tf.imag(vis)], -1)
+	return tf.concat([tf.math.real(vis), tf.math.imag(vis)], -1)
 
 
 def Lambda_cphase(cphase_proj):
@@ -116,6 +116,6 @@ def Lambda_cphase2(F_cphase):
 		vis2 = tf.squeeze(tf.matmul(F_cphase[:, :, 1], input_im_reshape), -1)
 		vis3 = tf.squeeze(tf.matmul(F_cphase[:, :, 2], input_im_reshape), -1)
 		bispec = vis1 * vis2 * vis3
-		cphase = tf.angle(bispec) * 180 / np.pi
+		cphase = tf.math.angle(bispec) * 180 / np.pi
 		return cphase
 	return func

@@ -204,7 +204,7 @@ def Prepare_EHT_Data(fov_param, flux_label, blur_param, sefd_param, eht_array='e
 			im_deform = elastic_transform(im, 20, 2, 0.5)
 			xdata_train[k] = im_deform[:, :, 0]
 			xdata_train[k] = skimage.transform.rotate(xdata_train[k], rot_random[k])
-		xdata_train = np.pad(xdata_train, ((0,0), (2,2), (2,2)), 'constant')  # get to 32x32
+	xdata_train = np.pad(xdata_train, ((0,0), (2,2), (2,2)), 'constant')  # get to 32x32
 
 	xdata_train = xdata_train[..., np.newaxis]/255
 
@@ -788,11 +788,11 @@ if __name__ == '__main__':
 	# nb_epochs_train = 50
 	# sample_weight = 0.005
 	# ising_weight = 0.005
-	# blur_param = 0.25
+	# blur_param = 0.75
 	# fov_param = 100.0
 	# sefd_param = 0
 	# flux_label = 1
-	# file_index = 'cpamp7'#'featurecpamp1'#'featurevis1'
+	# file_index = 'cpamp10'#'featurecpamp1'#'featurevis1'
 
 	savefile_name = eht_array+'_'+target+'_'+file_index+'_sample'+str(sample_weight)+'_ising'+str(ising_weight)+'_blur'+str(blur_param)+'_fov'+str(fov_param)+'_sefd'+str(sefd_param)+'_flux'+str(flux_label)
 
