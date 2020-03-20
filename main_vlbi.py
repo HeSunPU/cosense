@@ -30,7 +30,7 @@ import warnings
 
 
 from models_posci import IsingVisNet, IsingCpAmpNet, IsingMutipleVisNet, IsingMutipleCpAmpNet, IsingVisFeatureNet, IsingCpAmpFeatureNet
-from losses_posci import site_sparsity, energy, Lambda_similarity
+from losses_posci import site_sparsity, energy, Lambda_similarity, Lambda_angle_diff
 from data_augmentation import elastic_transform
 
 import gc
@@ -52,7 +52,7 @@ set_session(tf.Session(config=config))
 
 plt.ion()
 
-nsamp = 100000
+nsamp = 10000 #100000
 def Prepare_EHT_Data(fov_param, flux_label, blur_param, sefd_param, eht_array='eht2019', target='m87', data_augmentation=False, npix=32):
 	"""
     Prepare the EHT training data for learning a probabilistic sensing for computational imaging!
@@ -315,6 +315,18 @@ def Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, se
 	###############################################################################
 	# nsamp = 10000
 
+	vis = np.matmul(xdata.reshape((-1, 32*32)), np.transpose(F)).astype(np.complex64)
+	vis1 = np.matmul(xdata.reshape((-1, 32*32)), np.transpose(F_cphase[:, :, 0])).astype(np.complex64)
+	vis2 = np.matmul(xdata.reshape((-1, 32*32)), np.transpose(F_cphase[:, :, 1])).astype(np.complex64)
+	vis3 = np.matmul(xdata.reshape((-1, 32*32)), np.transpose(F_cphase[:, :, 2])).astype(np.complex64)
+
+
+
+	vis_concat = np.concatenate([vis.real, vis.imag], -1)
+	cphase = np.angle(vis1 * vis2 * vis3) * 180 / np.pi
+	vis_amp = np.abs(vis)
+	vis_angle = np.angle(vis) * 180 / np.pi
+
 	# model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3)
 	model = IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
 
@@ -323,11 +335,14 @@ def Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, se
 	adam_opt = keras.optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, amsgrad=False)
 
 	recon_weight = 1.0
+	vis_weight = 0.0 #2e-2
+	cphase_weight = 1e-1
 	# model.compile(optimizer=adam_opt, loss={'recon': 'mean_absolute_error', 'sampling': site_sparsity, 'ising': energy}, 
 	# 			loss_weights={'recon': recon_weight, 'sampling': sample_weight, 'ising': ising_weight})
 
-	model.compile(optimizer=adam_opt, loss={'recon': Lambda_similarity, 'sampling': site_sparsity, 'ising': energy}, 
-				loss_weights={'recon': recon_weight, 'sampling': sample_weight, 'ising': ising_weight})
+	
+	model.compile(optimizer=adam_opt, loss={'recon': Lambda_similarity, 'sampling': site_sparsity, 'ising': energy, 'vis_angle_pred': Lambda_angle_diff, 'cphase_pred': Lambda_angle_diff}, 
+				loss_weights={'recon': recon_weight, 'sampling': sample_weight, 'ising': ising_weight, 'vis_angle_pred': vis_weight, 'cphase_pred': cphase_weight})
 
 	# modelname = os.path.join(models_dir, savefile_name+'best.h5')
 
@@ -338,7 +353,7 @@ def Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, se
 			model.save_weights(os.path.join(models_dir, savefile_name+'weights{:02d}.hdf5'.format(epoch)))
 
 	
-	history = model.fit({'input': xdata}, {'recon': xdata_blur, 'sampling': np.zeros((nsamp, n_sites)), 'ising': np.zeros((nsamp, ))},
+	history = model.fit({'input': xdata}, {'recon': xdata_blur, 'sampling': np.zeros((nsamp, n_sites)), 'ising': np.zeros((nsamp, )), 'vis_angle_pred': vis_angle, 'cphase_pred': cphase},
 	                validation_split=0.3,
 	                initial_epoch=1,
 	                epochs=1 + nb_epochs_train,
@@ -536,7 +551,7 @@ def Train_IsingMutipleCpAmpNet(eht_array, target_list, fov_param, flux_label, bl
 
 	return model
 
-def Prepare_BlackHole_Feature_Data(sefd_param = 0):
+def Prepare_BlackHole_Feature_Data(sefd_param = 0, target = 'm87'):
 	###############################################################################
 	# prepare the training data with features
 	###############################################################################
@@ -560,29 +575,31 @@ def Prepare_BlackHole_Feature_Data(sefd_param = 0):
 			else:
 				combined_class_array[k, i] = 0.0
 
-	# spin_list = np.unique(spin_label)
-	# spin_array = np.zeros((nsamp, len(spin_list)))
-	# for k in range(nsamp):
-	# 	for i in range(len(spin_list)):
-	# 		if spin_label[k] == spin_list[i]:
-	# 			spin_array[k, i] = 1.0
-	# 		else:
-	# 			spin_array[k, i] = 0.0
+	spin_unique = np.unique(spin_label)
+	spin_array = np.zeros((nsamp, len(spin_unique)))
+	for k in range(nsamp):
+		for i in range(len(spin_unique)):
+			if spin_label[k] == spin_unique[i]:
+				spin_array[k, i] = 1.0
+			else:
+				spin_array[k, i] = 0.0
 
-	# class_list = np.unique(class_label)
-	# class_array = np.zeros((nsamp, len(class_list)))
-	# for k in range(nsamp):
-	# 	for i in range(len(class_list)):
-	# 		if class_label[k] == class_list[i]:
-	# 			class_array[k, i] = 1.0
-	# 		else:
-	# 			class_array[k, i] = 0.0
+	class_unique = np.unique(class_label)
+	class_array = np.zeros((nsamp, len(class_unique)))
+	for k in range(nsamp):
+		for i in range(len(class_unique)):
+			if class_label[k] == class_unique[i]:
+				class_array[k, i] = 1.0
+			else:
+				class_array[k, i] = 0.0
 
 	shuffle_order = np.random.RandomState(seed=42).permutation(nsamp)
 	image_shuffle = image[shuffle_order]
 	# spin_shuffle = spin_array[shuffle_order]
 	# class_shuffle = class_array[shuffle_order]
 	combined_class_shuffle = combined_class_array[shuffle_order]
+	class_shuffle = class_array[shuffle_order]
+	spin_shuffle = spin_array[shuffle_order]
 
 	###############################################################################
 	# generate eht observation data
@@ -609,8 +626,17 @@ def Prepare_BlackHole_Feature_Data(sefd_param = 0):
 	eht = eh.array.load_txt(array)
 	fov = 160 * eh.RADPERUAS
 
-	ra = 12.513728717168174
-	dec = 12.39112323919932
+	###############################################################################
+	# define scientific target
+	###############################################################################
+	if target == 'm87':
+		ra = 12.513728717168174
+		dec = 12.39112323919932
+	elif target == 'sgrA':
+		ra = 19.414182210498385
+		dec = -29.24170032236311
+	# ra = 12.513728717168174
+	# dec = 12.39112323919932
 
 	rf = 230e9
 	npix = 160
@@ -694,9 +720,9 @@ def Prepare_BlackHole_Feature_Data(sefd_param = 0):
 		sigma = None
 
 	# return vis_data, spin_shuffle, class_shuffle, t1, t2, sigma
-	return vis_data, combined_class_shuffle, t1, t2, tc1, tc2, tc3, cphase_proj, sigma, combined_class_unique
+	return vis_data, combined_class_shuffle, class_shuffle, spin_shuffle, t1, t2, tc1, tc2, tc3, cphase_proj, sigma, combined_class_unique, class_unique, spin_unique
 
-def Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name='nn_params', network='vis'):
+def Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name='nn_params', network='vis', feature_name='both'):
 	
 	###############################################################################
 	# prepare the training data
@@ -705,7 +731,7 @@ def Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sa
 	flux_label = 1
 	blur_param = 1	
 	# vis_shuffle, spin_shuffle, class_shuffle, t1, t2, sigma = Prepare_BlackHole_Feature_Data(sefd_param)
-	vis_shuffle, combined_class_shuffle, t1, t2, tc1, tc2, tc3, cphase_proj, sigma, combined_class_unique = Prepare_BlackHole_Feature_Data(sefd_param)
+	vis_shuffle, combined_class_shuffle, class_shuffle, spin_shuffle, t1, t2, tc1, tc2, tc3, cphase_proj, sigma, combined_class_unique, class_unique, spin_unique = Prepare_BlackHole_Feature_Data(sefd_param, target)
 	n_sites = np.unique(np.concatenate([t1, t2])).shape[0] + 1
 
 	nsamp = vis_shuffle.shape[0]
@@ -715,18 +741,24 @@ def Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sa
 	# define the model
 	###############################################################################
 	if network ==  'vis':
-		model = IsingVisFeatureNet(t1, t2, n_ising_layers=n_ising_layers, slope_const=3, n_layers=3, n_hid=200, sigma=sigma)
+		model = IsingVisFeatureNet(t1, t2, n_ising_layers=n_ising_layers, slope_const=3, n_layers=3, n_hid=200, sigma=sigma, feature_name=feature_name)
 	elif network == 'cpamp':
-		model = IsingCpAmpFeatureNet(t1, t2, tc1, tc2, tc3, cphase_proj, n_ising_layers=n_ising_layers, slope_const=3, n_layers=3, n_hid=200, sigma=sigma)
+		model = IsingCpAmpFeatureNet(t1, t2, tc1, tc2, tc3, cphase_proj, n_ising_layers=n_ising_layers, slope_const=3, n_layers=3, n_hid=200, sigma=sigma, feature_name=feature_name)
 
 	adam_opt = keras.optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, amsgrad=False)
 
 	class_weight = 1.0
 	# model.compile(optimizer=adam_opt, loss={'bh_class': 'categorical_crossentropy', 'spin_class': 'categorical_crossentropy', 'sampling': site_sparsity, 'ising': energy}, 
 	# 			loss_weights={'bh_class': class_weight, 'spin_class': class_weight, 'sampling': sample_weight, 'ising': ising_weight})
-
-	model.compile(optimizer=adam_opt, loss={'combined_class': 'categorical_crossentropy', 'sampling': site_sparsity, 'ising': energy}, 
-				loss_weights={'combined_class': class_weight, 'sampling': sample_weight, 'ising': ising_weight})
+	if feature_name == 'class':
+		model.compile(optimizer=adam_opt, loss={'bh_class': 'categorical_crossentropy', 'sampling': site_sparsity, 'ising': energy}, 
+					loss_weights={'bh_class': class_weight, 'sampling': sample_weight, 'ising': ising_weight})
+	elif feature_name == 'spin':
+		model.compile(optimizer=adam_opt, loss={'spin_class': 'categorical_crossentropy', 'sampling': site_sparsity, 'ising': energy}, 
+					loss_weights={'spin_class': class_weight, 'sampling': sample_weight, 'ising': ising_weight})
+	elif feature_name == 'both':
+		model.compile(optimizer=adam_opt, loss={'combined_class': 'categorical_crossentropy', 'sampling': site_sparsity, 'ising': energy}, 
+					loss_weights={'combined_class': class_weight, 'sampling': sample_weight, 'ising': ising_weight})
 
 	# modelname = os.path.join(models_dir, savefile_name+'best.h5')
 
@@ -744,13 +776,30 @@ def Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sa
 	#                 verbose=1,
 	#                 callbacks=[checkpoint])
 
-	history = model.fit({'input': vis_shuffle}, {'combined_class': combined_class_shuffle, 'sampling': np.zeros((nsamp, n_sites)), 'ising': np.zeros((nsamp, ))},
-	                validation_split=0.3,
-	                initial_epoch=1,
-	                epochs=1 + nb_epochs_train,
-	                batch_size=batch_size,
-	                verbose=1,
-	                callbacks=[checkpoint])
+	if feature_name == 'class':
+		history = model.fit({'input': vis_shuffle}, {'bh_class': class_shuffle, 'sampling': np.zeros((nsamp, n_sites)), 'ising': np.zeros((nsamp, ))},
+		                validation_split=0.3,
+		                initial_epoch=1,
+		                epochs=1 + nb_epochs_train,
+		                batch_size=batch_size,
+		                verbose=1,
+		                callbacks=[checkpoint])
+	elif feature_name == 'spin':
+		history = model.fit({'input': vis_shuffle}, {'spin_class': spin_shuffle, 'sampling': np.zeros((nsamp, n_sites)), 'ising': np.zeros((nsamp, ))},
+		                validation_split=0.3,
+		                initial_epoch=1,
+		                epochs=1 + nb_epochs_train,
+		                batch_size=batch_size,
+		                verbose=1,
+		                callbacks=[checkpoint])
+	elif feature_name == 'both':
+		history = model.fit({'input': vis_shuffle}, {'combined_class': combined_class_shuffle, 'sampling': np.zeros((nsamp, n_sites)), 'ising': np.zeros((nsamp, ))},
+		                validation_split=0.3,
+		                initial_epoch=1,
+		                epochs=1 + nb_epochs_train,
+		                batch_size=batch_size,
+		                verbose=1,
+		                callbacks=[checkpoint])
 
 
 	modelname = os.path.join(models_dir, savefile_name+'.h5')
@@ -788,7 +837,7 @@ if __name__ == '__main__':
 	# nb_epochs_train = 50
 	# sample_weight = 0.005
 	# ising_weight = 0.005
-	# blur_param = 0.75
+	# blur_param = 0.25#0.75
 	# fov_param = 100.0
 	# sefd_param = 0
 	# flux_label = 1
@@ -796,7 +845,7 @@ if __name__ == '__main__':
 
 	savefile_name = eht_array+'_'+target+'_'+file_index+'_sample'+str(sample_weight)+'_ising'+str(ising_weight)+'_blur'+str(blur_param)+'_fov'+str(fov_param)+'_sefd'+str(sefd_param)+'_flux'+str(flux_label)
 
-	models_dir = '../joint_opt/models/anti-aliasing/01092020/'
+	models_dir = '../joint_opt/models/anti-aliasing/02012020/'
 	###############################################################################
 	# complex visibility
 	###############################################################################
@@ -822,13 +871,13 @@ if __name__ == '__main__':
 	# complex visibility feature
 	###############################################################################
 	if file_index[0:10] == 'featurevis':
-		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name, network='vis')
+		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name, network='vis', feature_name=file_index[10:-1])
 
 	###############################################################################
 	# closure phase and amplitude feature
 	###############################################################################
 	if file_index[0:12] == 'featurecpamp':
-		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name, network='cpamp')
+		model = Train_IsingFeatureNet(eht_array, target, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name, network='cpamp', feature_name=file_index[12:-1])
 
 
 	del model

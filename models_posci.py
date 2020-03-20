@@ -20,7 +20,7 @@ from layers_posci import _unet_from_tensor, Ising_sampling2
 ########################################################################################
 # joint sensing and imaging network with complex visibility
 ########################################################################################
-def IsingVisNet(t1, t2, F, n_ising_layers=5, slope_const=1e2, sigma=None):
+def IsingVisNet(t1, t2, F, n_ising_layers=5, slope_const=1e2, sigma=None, binary_slope=10):
 	filt = 64
 	kern = 3
 	acti = None
@@ -63,7 +63,7 @@ def IsingVisNet(t1, t2, F, n_ising_layers=5, slope_const=1e2, sigma=None):
 	# ising_sample, energy= Ising_sampling(output_dim=n_sites, name='ising',
 	# 								my_initializer=Constant(0.1))(input_im, n_layers=n_ising_layers, const=slope_const)
 	
-	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(10), name='sampling')(ising_sample)
+	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(binary_slope), name='sampling')(ising_sample)
 
 	vis_mask = keras.layers.Lambda(hp.Lambda_vis_mask2(Fm1, Fm2), name='vis_mask')(site_mask)
 
@@ -81,7 +81,7 @@ def IsingVisNet(t1, t2, F, n_ising_layers=5, slope_const=1e2, sigma=None):
 ########################################################################################
 # joint sensing and imaging network with amplitude and closure phase
 ########################################################################################
-def IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layers=5, slope_const=1e1, sigma=None):
+def IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layers=5, slope_const=1e1, sigma=None, binary_slope=10):
 	filt = 64
 	kern = 3
 	acti = None
@@ -152,7 +152,7 @@ def IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layer
 	ising_sample, energy= Ising_sampling2(output_dim=n_sites, name='ising',
 									my_initializer=Constant(0.1))(input_im, n_layers=n_ising_layers, const=slope_const)
 	
-	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(10), name='sampling')(ising_sample)
+	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(binary_slope), name='sampling')(ising_sample)
 
 	vis_mask = keras.layers.Lambda(hp.Lambda_vis_mask2(Fm1, Fm2), name='vis_mask')(site_mask)
 	cphase_mask = keras.layers.Lambda(hp.Lambda_cphase_mask2(Fcm1, Fcm2, Fcm3), name='cphase_mask')(site_mask)
@@ -169,8 +169,15 @@ def IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layer
 	vis = keras.layers.Dense(1000, activation=None, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None), name='dense_vis2')(vis)
 	vis = keras.layers.LeakyReLU(alpha=0.3, name='acti_vis2')(vis)
 	vis = keras.layers.BatchNormalization()(vis)
-	vis_angle = keras.layers.Dense(n_vis, activation=None, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None), name='dense_vis3')(vis)
+	vis = keras.layers.Dense(1000, activation=None, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None), name='dense_vis3')(vis)
+	vis = keras.layers.LeakyReLU(alpha=0.3, name='acti_vis3')(vis)
+	vis = keras.layers.BatchNormalization()(vis)
+	vis_angle = keras.layers.Dense(n_vis, activation=None, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None), name='vis_angle_pred')(vis)
 	vis_pred = keras.layers.Lambda(hp.Lambda_Vis, name='vis_pred')([vis_amp_selected, vis_angle])
+	
+	# vis_amp_pred = keras.layers.Dense(n_vis, activation=None, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None), name='vis_amp_pred')(vis)
+	# vis_pred = keras.layers.Lambda(hp.Lambda_Vis, name='vis_pred')([vis_amp_pred, vis_angle])
+	
 
 	dirty_im = keras.layers.Dense(32*32*1, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None), name='dense_dirtyimage')(vis_pred)
 	dirty_im_reshape = keras.layers.Reshape((32, 32, 1))(dirty_im)
@@ -179,7 +186,8 @@ def IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layer
 	recon = keras.layers.ReLU(name='recon')(recon)
 	cphase_pred = keras.layers.Lambda(hp.Lambda_cphase(cphase_proj), name='cphase_pred')(vis_angle)
 
-	model = keras.models.Model(inputs=input_im, outputs=[recon, site_mask, energy, vis_pred, cphase_pred])
+	# model = keras.models.Model(inputs=input_im, outputs=[recon, site_mask, energy, vis_pred, cphase_pred])
+	model = keras.models.Model(inputs=input_im, outputs=[recon, site_mask, energy, vis_angle, cphase_pred])
 	return model
 
 ########################################################################################
@@ -409,7 +417,7 @@ def IsingMutipleCpAmpNet(t1_list, t2_list, tc1_list, tc2_list, tc3_list, F_list,
 ########################################################################################
 # joint sensing and feature extraction network with complex visibility
 ########################################################################################
-def IsingVisFeatureNet(t1, t2, n_ising_layers=5, slope_const=1e2, n_layers=3, n_hid=1000, sigma=None):
+def IsingVisFeatureNet(t1, t2, n_ising_layers=5, slope_const=1e2, n_layers=3, n_hid=1000, sigma=None, feature_name='both', binary_slope=10):
 	filt = 64
 	kern = 3
 	acti = None
@@ -450,7 +458,7 @@ def IsingVisFeatureNet(t1, t2, n_ising_layers=5, slope_const=1e2, n_layers=3, n_
 	ising_sample, energy= Ising_sampling2(output_dim=n_sites, name='ising',
 									my_initializer=Constant(0.1))(vis, n_layers=n_ising_layers, const=slope_const)
 
-	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(10), name='sampling')(ising_sample)
+	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(binary_slope), name='sampling')(ising_sample)
 
 	vis_mask = keras.layers.Lambda(hp.Lambda_vis_mask2(Fm1, Fm2), name='vis_mask')(site_mask)
 
@@ -465,17 +473,20 @@ def IsingVisFeatureNet(t1, t2, n_ising_layers=5, slope_const=1e2, n_layers=3, n_
 		hidden_act = keras.layers.ReLU()(hidden)
 		layer_input = keras.layers.BatchNormalization()(hidden_act)
 
-	# bh_class = keras.layers.Dense(2, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
-	# bh_class = keras.layers.Softmax(axis=-1, name='bh_class')(bh_class)
-
-	# spin_class = keras.layers.Dense(7, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
-	# spin_class = keras.layers.Softmax(axis=-1, name='spin_class')(spin_class)
-
-	combined_class = keras.layers.Dense(13, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
-	combined_class = keras.layers.Softmax(axis=-1, name='combined_class')(combined_class)
-
+	if feature_name == 'class':
+		bh_class = keras.layers.Dense(2, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+		bh_class = keras.layers.Softmax(axis=-1, name='bh_class')(bh_class)
+		model = keras.models.Model(inputs=vis, outputs=[bh_class, site_mask, energy])
+	elif feature_name == 'spin':
+		spin_class = keras.layers.Dense(7, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+		spin_class = keras.layers.Softmax(axis=-1, name='spin_class')(spin_class)
+		model = keras.models.Model(inputs=vis, outputs=[spin_class, site_mask, energy])
+	elif feature_name == 'both':
+		combined_class = keras.layers.Dense(13, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+		combined_class = keras.layers.Softmax(axis=-1, name='combined_class')(combined_class)
+		model = keras.models.Model(inputs=vis, outputs=[combined_class, site_mask, energy])
 	# model = keras.models.Model(inputs=vis, outputs=[bh_class, spin_class, site_mask, energy])
-	model = keras.models.Model(inputs=vis, outputs=[combined_class, site_mask, energy])
+	# model = keras.models.Model(inputs=vis, outputs=[combined_class, site_mask, energy])
 
 	return model
 
@@ -483,7 +494,7 @@ def IsingVisFeatureNet(t1, t2, n_ising_layers=5, slope_const=1e2, n_layers=3, n_
 ########################################################################################
 # joint sensing and feature extraction network with amplitude and closure phase
 ########################################################################################
-def IsingCpAmpFeatureNet(t1, t2, tc1, tc2, tc3, cphase_proj, n_ising_layers=5, slope_const=1e2, n_layers=3, n_hid=1000, sigma=None):
+def IsingCpAmpFeatureNet(t1, t2, tc1, tc2, tc3, cphase_proj, n_ising_layers=5, slope_const=1e2, n_layers=3, n_hid=1000, sigma=None, feature_name='both', binary_slope=10):
 	filt = 64
 	kern = 3
 	acti = None
@@ -550,7 +561,7 @@ def IsingCpAmpFeatureNet(t1, t2, tc1, tc2, tc3, cphase_proj, n_ising_layers=5, s
 	ising_sample, energy= Ising_sampling2(output_dim=n_sites, name='ising',
 									my_initializer=Constant(0.1))(vis, n_layers=n_ising_layers, const=slope_const)
 
-	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(10), name='sampling')(ising_sample)
+	site_mask = keras.layers.Lambda(hp.Lambda_binary_convert(binary_slope), name='sampling')(ising_sample)
 
 
 	vis_mask = keras.layers.Lambda(hp.Lambda_vis_mask2(Fm1, Fm2), name='vis_mask')(site_mask)
@@ -577,16 +588,20 @@ def IsingCpAmpFeatureNet(t1, t2, tc1, tc2, tc3, cphase_proj, n_ising_layers=5, s
 		hidden_act = keras.layers.ReLU()(hidden)
 		layer_input = keras.layers.BatchNormalization()(hidden_act)
 
-	# bh_class = keras.layers.Dense(2, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
-	# bh_class = keras.layers.Softmax(axis=-1, name='bh_class')(bh_class)
-
-	# spin_class = keras.layers.Dense(7, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
-	# spin_class = keras.layers.Softmax(axis=-1, name='spin_class')(spin_class)
-
-	combined_class = keras.layers.Dense(13, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
-	combined_class = keras.layers.Softmax(axis=-1, name='combined_class')(combined_class)
+	if feature_name == 'class':
+		bh_class = keras.layers.Dense(2, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+		bh_class = keras.layers.Softmax(axis=-1, name='bh_class')(bh_class)
+		model = keras.models.Model(inputs=vis, outputs=[bh_class, site_mask, energy])
+	elif feature_name == 'spin':
+		spin_class = keras.layers.Dense(7, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+		spin_class = keras.layers.Softmax(axis=-1, name='spin_class')(spin_class)
+		model = keras.models.Model(inputs=vis, outputs=[spin_class, site_mask, energy])
+	elif feature_name == 'both':
+		combined_class = keras.layers.Dense(13, activation=acti, use_bias=True, kernel_initializer=RandomUniform(minval=-5e-4, maxval=5e-4, seed=None))(layer_input)
+		combined_class = keras.layers.Softmax(axis=-1, name='combined_class')(combined_class)
+		model = keras.models.Model(inputs=vis, outputs=[combined_class, site_mask, energy])
 
 	# model = keras.models.Model(inputs=vis, outputs=[bh_class, spin_class, site_mask, energy])
-	model = keras.models.Model(inputs=vis, outputs=[combined_class, site_mask, energy])
+	# model = keras.models.Model(inputs=vis, outputs=[combined_class, site_mask, energy])
 
 	return model

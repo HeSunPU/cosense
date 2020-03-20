@@ -155,7 +155,10 @@ def Lambda_gibbs_layer2(delta, M, dim, const = 10):
         for k in range(dim):
             u.append(tf.random.uniform(shape=tf.shape(x[k])))
         x_new = x
-        order_list = list(np.random.permutation(dim))
+        # order_list = list(np.random.permutation(dim))
+        order_list = []
+        for k in range(dim):
+            order_list.append(k)
         for i in range(dim):
             k = order_list[i] % dim
             updated_indices = order_list[0:i]

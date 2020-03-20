@@ -24,3 +24,8 @@ def Lambda_similarity(y_true, y_pred):
 	cross_correlation = keras.layers.Lambda(Lambda_cross_correlation)([y_true, y_pred])
 	max_cross_corr = keras.layers.MaxPool2D((32, 32))(cross_correlation)
 	return 1-K.mean(max_cross_corr)
+
+def Lambda_angle_diff(y_true, y_pred):
+	angle_true = y_true * np.pi / 180
+	angle_pred = y_pred * np.pi / 180
+	return K.mean(1 - K.cos(angle_true - angle_pred))
