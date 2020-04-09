@@ -216,4 +216,47 @@ class Ising_sampling2(Layer):
         return [(input_shape[0], self.output_dim), (input_shape[0], )]
 
 
+class Ising_sampling(Layer):
+    '''
+    Hybird/Hamilton Monte Carlo sampling layer
+    '''
+    def __init__(self, output_dim=16, my_initializer=RandomUniform(minval=-1, maxval=1, seed=None), regularizer_weight=0.0, **kwargs):
+        self.initializer = my_initializer
+        self.output_dim = output_dim
+        self.regularizer_weight = regularizer_weight
+        super(Ising_sampling, self).__init__(**kwargs)
+    def build(self, input_shape):
+        # create trainable weights which describe the Ising model distribution
+        self.Q = self.add_weight(name='inter_potential',
+                                shape=(self.output_dim*(self.output_dim-1)//2, ),
+                                initializer=RandomUniform(minval=-0.01, maxval=0.01, seed=None),
+                                regularizer=regularizers.l2(self.regularizer_weight),
+                                trainable=True)
 
+        self.delta = self.add_weight(name='self_potential',
+                                shape=(self.output_dim,),
+                                initializer=self.initializer,
+                                regularizer=regularizers.l2(self.regularizer_weight),
+                                trainable=True)
+
+
+
+        self.M = Lambda(Lambda_intermat(self.output_dim))(self.Q)
+        super(Ising_sampling, self).build(input_shape)
+    def call(self, inputs, n_layers=3, const=1, xi=1, L=10):
+        n_batch = tf.shape(inputs)[0]
+        self.n_batch = n_batch
+        # update the Ising sample using hybrid/Hamiltonian Monte Carlo
+        y = tf.random.normal(shape=(n_batch, self.output_dim))
+        x = tf.math.tanh(const * y)
+        for k in range(n_layers):
+            vel = tf.random.normal(shape=(n_batch, self.output_dim))
+            for i in range(L):
+                vel_half = vel + 0.5 * np.sqrt(xi) * const * (self.delta + tf.matmul(x, self.M)) * (1 - tf.math.square(x))
+                y += np.sqrt(xi) * vel_half
+                x = tf.math.tanh(const * y)
+                vel = vel_half + 0.5 * np.sqrt(xi) * const * (self.delta + tf.matmul(x, self.M)) * (1 - tf.math.square(x))
+        energy = Lambda(Lambda_ising_energy(self.M, self.delta))(x)
+        return [x, energy]
+    def compute_output_shape(self, input_shape):
+        return [(input_shape[0], self.output_dim), (input_shape[0], )]
