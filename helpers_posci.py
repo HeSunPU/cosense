@@ -67,7 +67,8 @@ def Lambda_select(x):
 
 def Lambda_binary_convert(const=10):
 	def func(x):
-		return K.sigmoid(const * x)
+		# return K.sigmoid(const * x)
+		return 0.5 * (x + 1)
 	return func
 
 
@@ -119,3 +120,4 @@ def Lambda_cphase2(F_cphase):
 		cphase = tf.math.angle(bispec) * 180 / np.pi
 		return cphase
 	return func
+

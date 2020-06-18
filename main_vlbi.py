@@ -52,6 +52,24 @@ set_session(tf.Session(config=config))
 
 plt.ion()
 
+
+# import numpy as np
+
+def observe_prob(params,limit):
+	return(1./(1.+np.exp(-params[0]*(limit-params[1]))))
+
+cutoff = 3.0
+with open('cdf_params.txt','r') as fi:
+	lines = fi.readlines()
+
+cdf_params = {}
+obs_prob = {}
+for line in lines:
+	cdf_params[line.split('\t')[0]] = np.array([float(line.split('\t')[1]),float(line.split('\t')[2].rstrip())])
+	obs_prob[line.split('\t')[0]] = observe_prob(cdf_params[line.split('\t')[0]],cutoff)
+
+print(obs_prob)
+
 nsamp = 10000 #100000
 def Prepare_EHT_Data(fov_param, flux_label, blur_param, sefd_param, eht_array='eht2019', target='m87', data_augmentation=False, npix=32):
 	"""
@@ -86,7 +104,8 @@ def Prepare_EHT_Data(fov_param, flux_label, blur_param, sefd_param, eht_array='e
 	###############################################################################
 	if eht_array == 'eht2019':
 		# please change this to the folder of ehtim
-		array = '/home/groot/BoumanLab/eht-imaging/arrays/EHT2019.txt'
+		# array = '/home/groot/BoumanLab/eht-imaging/arrays/EHT2019.txt'
+		array = '/home/groot/BoumanLab/eht-imaging/arrays/EHT2019_no_carma.txt'
 	elif eht_array == 'eht2025':
 		# please change this to the folder of ehtim
 		array = '/home/groot/BoumanLab/eht-imaging/arrays/EHT2025.txt'
@@ -255,7 +274,7 @@ def Prepare_EHT_Data(fov_param, flux_label, blur_param, sefd_param, eht_array='e
 	return xdata, xdata_blur, t1, t2, F, tc1, tc2, tc3, F_cphase, cphase_proj, sigma
 
 
-def Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name='nn_params'):
+def Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name='nn_params', weather=False):
 	
 	###############################################################################
 	# prepare the training data
@@ -267,7 +286,15 @@ def Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd
 	###############################################################################
 	# nsamp = 10000
 
-	model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
+	# model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
+
+	if weather:
+		model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3, obs_prob=obs_prob)
+		# model = IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma, obs_prob=obs_prob)
+	else:
+		model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3)
+		# model = IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
+
 	
 	adam_opt = keras.optimizers.Adam(lr=lr, beta_1=0.9, beta_2=0.999, amsgrad=False)
 
@@ -303,7 +330,7 @@ def Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd
 	return model
 
 
-def Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name='nn_params'):
+def Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir='../joint_opt/models/anti-aliasing/12302019/', savefile_name='nn_params', weather=False):
 	
 	###############################################################################
 	# prepare the training data
@@ -327,8 +354,11 @@ def Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, se
 	vis_amp = np.abs(vis)
 	vis_angle = np.angle(vis) * 180 / np.pi
 
-	# model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3)
-	model = IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
+	if weather:
+		# model = IsingVisNet(t1, t2, F, n_ising_layers=n_ising_layers, slope_const=3)
+		model = IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma, obs_prob=obs_prob)
+	else:
+		model = IsingCpAmpNet(t1, t2, tc1, tc2, tc3, F, F_cphase, cphase_proj, n_ising_layers=n_ising_layers, slope_const=3, sigma=sigma)
 
 
 
@@ -830,22 +860,29 @@ if __name__ == '__main__':
 	sefd_param = int(sys.argv[9])
 	flux_label = int(sys.argv[10])
 	file_index = sys.argv[11]
+	weather = str(sys.argv[12])
+
+	if weather == 'True':
+		weather = True
+	else:
+		weather = False
 
 	# eht_array = 'eht2019'
-	# target = 'sgrA'#'m87'#'both'#
+	# target = 'm87'#'sgrA'#'both'#
 	# lr = 0.001#0.001
 	# nb_epochs_train = 50
-	# sample_weight = 0.005
-	# ising_weight = 0.005
+	# sample_weight = 0.05
+	# ising_weight = 0.0001
 	# blur_param = 0.25#0.75
 	# fov_param = 100.0
 	# sefd_param = 0
 	# flux_label = 1
-	# file_index = 'cpamp10'#'featurecpamp1'#'featurevis1'
+	# file_index = 'cpamp1'#'featurecpamp1'#'featurevis1'
+	# weather = False
 
-	savefile_name = eht_array+'_'+target+'_'+file_index+'_sample'+str(sample_weight)+'_ising'+str(ising_weight)+'_blur'+str(blur_param)+'_fov'+str(fov_param)+'_sefd'+str(sefd_param)+'_flux'+str(flux_label)
+	savefile_name = eht_array+'_'+target+'_'+file_index+'_sample'+str(sample_weight)+'_ising'+str(ising_weight)+'_blur'+str(blur_param)+'_fov'+str(fov_param)+'_sefd'+str(sefd_param)+'_flux'+str(flux_label)+'_weather'+str(weather)
 
-	models_dir = '../joint_opt/models/anti-aliasing/02012020/'
+	models_dir = './data/20200606/'#'../joint_opt/models/anti-aliasing/02012020/'
 	###############################################################################
 	# complex visibility
 	###############################################################################
@@ -854,8 +891,8 @@ if __name__ == '__main__':
 			target_list = ['sgrA', 'm87']
 			model = Train_IsingMutipleVisNet(eht_array, target_list, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name)
 		else:
-			model = Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name)
-
+			model = Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 64, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name, weather=weather)
+			# model = Train_IsingVisNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 10, models_dir=models_dir, savefile_name=savefile_name, weather=weather)
 	###############################################################################
 	# closure phase and amplitude
 	###############################################################################
@@ -864,7 +901,8 @@ if __name__ == '__main__':
 			target_list = ['sgrA', 'm87']
 			model = Train_IsingMutipleCpAmpNet(eht_array, target_list, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name)
 		else:
-			model = Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name)
+			model = Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 64, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name, weather=weather)
+			# model = Train_IsingCpAmpNet(eht_array, target, fov_param, flux_label, blur_param, sefd_param, lr, nb_epochs_train, sample_weight, ising_weight, batch_size = 32, n_ising_layers = 5, models_dir=models_dir, savefile_name=savefile_name, weather=weather)
 
 
 	###############################################################################
@@ -1003,3 +1041,172 @@ if __name__ == '__main__':
 	# train_class_true = np.argmax(combined_class_shuffle[0:-900], 1)
 	# train_class_count = [np.sum(train_class_true==k) for k in range(13)]
 	# plt.figure(), plt.plot(train_class_count)
+
+
+
+	# Q_vec = model.get_layer('ising').get_weights()[0]                                                                                                                
+	# delta = model.get_layer('ising').get_weights()[1] 
+	# n_sites = len(delta)
+	# Q = np.zeros((n_sites, n_sites))
+	# k = 0
+	# for k1 in range(n_sites):
+	# 	for k2 in range(k1):
+	# 		Q[k1, k2] = Q_vec[k]
+	# 		k += 1
+	# Q = Q + Q.T
+
+	# tlib1 = {'PV': 0, 'PDB': 1, 'ALMA': 2, 'APEX': 3, 'LMT': 4, 'SMT': 5, 'SPT': 6, 'JCMT': 7, 'SMA': 8, 'KP': 9, 'GLT': 10}
+	# tlib2 = {'ALMA': 0, 'APEX': 1, 'PDB': 2, 'PV': 3, 'LMT': 4, 'SMT': 5, 'KP': 6, 'JCMT': 7, 'SMA': 8, 'GLT': 9, 'SPT': 10}
+
+	# tlib_list = list(tlib1)
+	# tlib2_order = []
+	# for k in range(len(tlib_list)):
+	# 	tlib2_order.append(tlib2[tlib_list[k]])
+
+	# if target == 'm87':
+	# 	Q_new = np.array(Q)
+	# 	delta_new = np.array(delta)
+	# 	for j1 in range(n_sites):
+	# 		delta_new[j1] = delta[tlib2_order[j1]]
+	# 		for j2 in range(n_sites):
+	# 			Q_new[j1, j2] = Q[tlib2_order[j1], tlib2_order[j2]]
+	# 	Q = Q_new
+	# 	delta = delta_new
+
+	# plt.figure(), 
+	# plt.plot(np.arange(11), delta, 'ro')
+	# plt.ylim([-0.1, 0.5])
+	# plt.title(r'Ising model parameter ($\theta_{jj}$)', fontsize=18)
+	# plt.xticks(range(len(tlib_list)), list(tlib_list), size='small', rotation=35, fontsize=12)
+	# plt.yticks(fontsize=14)
+	# # plt.savefig(os.path.join(data_dir, 'delta2_'+savefile_name+'.pdf'))
+
+
+	# plt.figure(), plt.imshow(Q), plt.set_cmap('seismic')
+	# cb = plt.colorbar()
+	# cb.ax.tick_params(labelsize=14)
+	# plt.title(r'Ising model parameter ($\theta_{jk}$)', fontsize=18)
+	# plt.clim(-0.6, 0.6)
+	# plt.xticks(range(len(tlib_list)), list(tlib_list), size='small', rotation=35, fontsize=12)
+	# plt.yticks(range(len(tlib_list)), list(tlib_list), size='small', fontsize=12)
+	# plt.ylim(-0.5, n_sites-0.5)
+
+	# sample_mean_list = np.zeros((5, 11))
+	# correlation_list = np.zeros((5, 11, 11))
+	# for k in range(5):
+	# 	print('cpamp'+str(k+1))
+	# 	file_index = 'cpamp'+str(k+1)
+	# 	savefile_name = eht_array+'_'+target+'_'+file_index+'_sample'+str(sample_weight)+'_ising'+str(ising_weight)+'_blur'+str(blur_param)+'_fov'+str(fov_param)+'_sefd'+str(sefd_param)+'_flux'+str(flux_label)+'_weather'+str(weather)
+	# 	modelname = os.path.join(models_dir, savefile_name+'.h5')
+	# 	model.load_weights(modelname)
+
+	# 	# # recon, sample, logprob, _, _ = model.predict(np.concatenate([xdata]*20, 0))
+	# 	# recon, sample, logprob, _, _ = model.predict(xdata)
+	# 	# sample_mean = np.mean(sample, 0)
+	# 	# sample_c = sample - sample_mean
+
+	# 	# cov = np.matmul(sample_c.T, sample_c) / sample.shape[0]
+	# 	# var = np.diag(cov) 
+	# 	# std = np.sqrt(var) 
+	# 	# correlation = cov / np.outer(std, std)
+	# 	# correlation[np.arange(sample.shape[1]), np.arange(sample.shape[1])] = 0
+
+	# 	Q_vec = model.get_layer('ising').get_weights()[0]                                                                                                                
+	# 	delta = model.get_layer('ising').get_weights()[1] 
+	# 	n_sites = len(delta)
+	# 	Q = np.zeros((n_sites, n_sites))
+	# 	j = 0
+	# 	for k1 in range(n_sites):
+	# 		for k2 in range(k1):
+	# 			Q[k1, k2] = Q_vec[j]
+	# 			j += 1
+	# 	Q = Q + Q.T
+
+	# 	sample_mean = delta
+	# 	correlation = Q
+
+	# 	if target == 'm87':
+	# 		correlation_new = np.array(correlation)
+	# 		sample_mean_new = np.array(sample_mean)
+	# 		for j1 in range(n_sites):
+	# 			sample_mean_new[j1] = sample_mean[tlib2_order[j1]]
+	# 			for j2 in range(n_sites):
+	# 				correlation_new[j1, j2] = correlation[tlib2_order[j1], tlib2_order[j2]]
+	# 		correlation = correlation_new
+	# 		sample_mean = sample_mean_new
+
+	# 	sample_mean_list[k] = sample_mean
+	# 	correlation_list[k] = correlation
+
+	# 	del recon, sample, logprob
+
+	# delta_mean = np.mean(sample_mean_list, 0)
+	# delta_std = np.std(sample_mean_list, 0)
+
+
+	# plt.figure(), 
+	# (_, caps, _) = plt.errorbar(np.arange(11), delta_mean, delta_std, fmt='ro', ecolor='r', capthick=2, elinewidth=2, barsabove=True, lolims=True, uplims=True)
+	# caps[0].set_marker('_')
+	# caps[1].set_marker('_')
+	# plt.ylim([0.0, 1.0])
+	# plt.title(r'Sampling activity', fontsize=18)
+	# plt.xticks(range(len(tlib_list)), list(tlib_list), size='small', rotation=35, fontsize=12)
+	# plt.yticks(fontsize=14)
+
+
+
+
+	# recon, sample, logprob = model.predict(np.concatenate([xdata]*20, 0))
+	# sample_mean = np.mean(sample, 0)
+	# sample_c = sample - sample_mean
+
+	# cov = np.matmul(sample_c.T, sample_c) / sample.shape[0]
+	# var = np.diag(cov) 
+	# std = np.sqrt(var) 
+	# correlation = cov / np.outer(std, std)
+	# correlation[np.arange(sample.shape[1]), np.arange(sample.shape[1])] = 0
+
+
+	# if target == 'm87':
+	# 	correlation_new = np.array(correlation)
+	# 	sample_mean_new = np.array(sample_mean)
+	# 	for j1 in range(n_sites):
+	# 		sample_mean_new[j1] = sample_mean[tlib2_order[j1]]
+	# 		for j2 in range(n_sites):
+	# 			correlation_new[j1, j2] = correlation[tlib2_order[j1], tlib2_order[j2]]
+	# 	correlation = correlation_new
+	# 	sample_mean = sample_mean_new
+
+
+	# plt.figure(), 
+	# plt.plot(np.arange(11), sample_mean, 'ro')
+	# plt.ylim([0.0, 1.0])
+	# plt.title(r'Sampling activity', fontsize=18)
+	# plt.xticks(range(len(tlib_list)), list(tlib_list), size='small', rotation=35, fontsize=12)
+	# plt.yticks(fontsize=14)
+	# # plt.savefig(os.path.join(data_dir, 'delta2_'+savefile_name+'.pdf'))
+
+
+	# plt.figure(), plt.imshow(correlation), plt.set_cmap('seismic')
+	# cb = plt.colorbar()
+	# cb.ax.tick_params(labelsize=14)
+	# plt.title(r'Sampling correlation', fontsize=18)
+	# plt.clim(-0.3, 0.3)
+	# plt.xticks(range(len(tlib_list)), list(tlib_list), size='small', rotation=35, fontsize=12)
+	# plt.yticks(range(len(tlib_list)), list(tlib_list), size='small', fontsize=12)
+	# plt.ylim(-0.5, n_sites-0.5)
+
+
+	# history_name = os.path.join(models_dir, 'history_'+savefile_name+'.csv')
+	# with open(history_name) as csvfile:
+	# 	train_history = csv.reader(csvfile)
+	# 	loss_history = []
+	# 	for row in train_history:
+	# 		loss_history.append(row)
+	# loss = [np.float(num) for num in loss_history[4][1][1:-1].split(', ')]
+	# val_loss = [np.float(num) for num in loss_history[0][1][1:-1].split(', ')]
+
+	# plt.figure(), plt.plot(loss)
+	# plt.plot(val_loss)
+	# plt.ylim([0.02, 0.1])
+	# plt.legend(['loss', 'val_loss'])

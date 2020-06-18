@@ -10,6 +10,9 @@ def site_sparsity(y_true, y_pred):
 def energy(y_true, y_pred):
 	return y_pred
 
+def entropy_loss(_, y_pred):
+		return -y_pred
+
 def Lambda_cross_correlation(x):
 	x_true0, x_pred0 = x
 	x_true = tf.transpose(x_true0, [1, 2, 0, 3])
