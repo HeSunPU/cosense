@@ -14,7 +14,7 @@ from keras.layers.merge import Concatenate, Add
 from keras.layers import Dense, Lambda, Reshape
 import tensorflow as tf
 from keras.initializers import RandomUniform,Identity,RandomNormal
-from flow_generator_helpers import FCResnet, Split, Concat, Coupling, Permute2
+#from flow_generator_helpers import FCResnet, Split, Concat, Coupling, Permute2
 
 
 def _unet_from_tensor(tensor, filt, kern, acti, trainable=True):
