@@ -1,0 +1,218 @@
+import os
+import torch
+import torch.utils.data
+from torch import nn, optim
+from torch.nn import functional as F
+from torchvision import datasets, transforms
+from torchvision.utils import save_image
+import numpy as np
+
+class ConvBlock(nn.Module):
+	"""
+	A Convolutional Block that consists of two convolution layers each followed by
+	instance normalization, relu activation and dropout.
+	"""
+	def __init__(self, in_chans, out_chans, drop_prob):
+		"""
+		Args:
+		    in_chans (int): Number of channels in the input.
+		    out_chans (int): Number of channels in the output.
+		    drop_prob (float): Dropout probability.
+		"""
+		super(ConvBlock, self).__init__()
+
+		self.in_chans = in_chans
+		self.out_chans = out_chans
+		self.drop_prob = drop_prob
+
+		self.layers = nn.Sequential(
+		    nn.Conv2d(in_chans, out_chans, kernel_size=3, padding=1),
+		    nn.InstanceNorm2d(out_chans),
+		    nn.ReLU(),
+		    nn.Dropout2d(drop_prob),
+		    nn.Conv2d(out_chans, out_chans, kernel_size=3, padding=1),
+		    nn.InstanceNorm2d(out_chans),
+		    nn.ReLU(),
+		    nn.Dropout2d(drop_prob)
+		)
+
+	def forward(self, input):
+		"""
+		Args:
+		    input (torch.Tensor): Input tensor of shape [batch_size, self.in_chans, height, width]
+		Returns:
+		    (torch.Tensor): Output tensor of shape [batch_size, self.out_chans, height, width]
+		"""
+		return self.layers(input)
+
+	def __repr__(self):
+		return f'ConvBlock(in_chans={self.in_chans}, out_chans={self.out_chans}, ' \
+		    f'drop_prob={self.drop_prob})'
+
+
+class LOUPEUNet(nn.Module):
+	"""
+		PyTorch implementation of a U-Net model.
+		This is based on:
+		    Olaf Ronneberger, Philipp Fischer, and Thomas Brox. U-net: Convolutional networks
+		    for biomedical image segmentation. In International Conference on Medical image
+		    computing and computer-assisted intervention, pages 234–241. Springer, 2015.   
+		The model takes a real or complex value image and use a UNet to denoise the image. 
+		A residual connection is applied to stablize training.       
+	"""
+	def __init__(self,
+	             in_chans,
+	             out_chans,
+	             chans,
+	             num_pool_layers,
+	             drop_prob):
+		"""
+		Args:
+		    in_chans (int): Number of channels in the input to the U-Net model.
+		    out_chans (int): Number of channels in the output to the U-Net model.
+		    chans (int): Number of output channels of the first convolution layer.
+		    num_pool_layers (int): Number of down-sampling and up-sampling layers.
+		    drop_prob (float): Dropout probability.
+		"""
+		super().__init__()
+
+
+		self.in_chans = in_chans 
+		self.out_chans = out_chans
+		self.chans = chans
+		self.num_pool_layers = num_pool_layers
+		self.drop_prob = drop_prob
+
+		self.down_sample_layers = nn.ModuleList([ConvBlock(in_chans, chans, drop_prob)])
+		ch = chans
+		for i in range(num_pool_layers - 1):
+		    self.down_sample_layers += [ConvBlock(ch, ch * 2, drop_prob)]
+		    ch *= 2
+		self.conv = ConvBlock(ch, ch, drop_prob)
+
+		self.up_sample_layers = nn.ModuleList()
+		for i in range(num_pool_layers - 1):
+		    self.up_sample_layers += [ConvBlock(ch * 2, ch // 2, drop_prob)]
+		    ch //= 2
+		self.up_sample_layers += [ConvBlock(ch * 2, ch, drop_prob)]
+		self.conv2 = nn.Sequential(
+		    nn.Conv2d(ch, ch // 2, kernel_size=1),
+		    nn.Conv2d(ch // 2, out_chans, kernel_size=1),
+		    nn.Conv2d(out_chans, out_chans, kernel_size=1),
+		)
+
+		nn.init.normal_(self.conv2[-1].weight, mean=0, std=0.001) 
+		self.conv2[-1].bias.data.fill_(0)
+
+	def forward(self, input, eps=1e-8):
+		# input: NCHW 
+		# output: NCHW 
+
+		output = input 
+
+		stack = []
+		# print(input.shape, mask.shape)
+
+		# Apply down-sampling layers
+		for layer in self.down_sample_layers:
+		    output = layer(output)
+		    stack.append(output)
+		    output = F.max_pool2d(output, kernel_size=2)
+
+		output = self.conv(output)
+
+		# Apply up-sampling layers
+		for layer in self.up_sample_layers:
+		    downsample_layer = stack.pop()
+		    layer_size = (downsample_layer.shape[-2], downsample_layer.shape[-1])
+		    output = F.interpolate(output, size=layer_size, mode='bilinear', align_corners=False)
+		    output = torch.cat([output, downsample_layer], dim=1)
+		    output = layer(output)
+
+		out_conv2 = self.conv2(output)
+
+		# img_residual = out_conv2[:, :1]
+
+		# return img_residual + torch.norm(input, dim=1, keepdim=True)
+
+		return torch.sigmoid(out_conv2)
+
+
+class STEFunction(torch.autograd.Function):
+	def __init__(self):
+		super(STEFunction, self).__init__()
+
+	@staticmethod
+	def forward(ctx, input):
+		ctx.save_for_backward(input)
+		return 1.0 * (input >= 0).float() - 1.0 * (input < 0).float()
+
+	@staticmethod
+	def backward(ctx, grad_output):
+		input, = ctx.saved_tensors
+		return grad_output * (1 - torch.tanh(input))
+
+
+# class StraightThroughEstimator(nn.Module):
+# 	def __init__(self):
+# 		super(StraightThroughEstimator, self).__init__()
+
+# 	def forward(self, x):
+# 		x = STEFunction.apply(x)
+# 		return x
+
+
+class IsingNet(nn.Module):
+	"""
+		PyTorch implementation of an Ising sampling layer.     
+	"""
+	def __init__(self, nsensors=16, const=1, nsteps=3, xi=1, L=10, Q_prior=None, delta_prior=None):
+		"""
+		Args:
+		    nsensors (int): Number of sensors used for observations.
+		    Q_prior (float): prior of ising model's correlation matrix.
+		    delta_prior (float): prior of ising model's activity matrix.
+		"""
+		super().__init__()
+		self.nsensors = nsensors
+		self.const = const
+		self.nsteps = nsteps
+		self.xi = xi
+		self.L = L
+		self.Q_prior = Q_prior
+		self.delta_prior = delta_prior
+		if self.delta_prior is None:
+			self.delta_prior = 0.1 * torch.ones(nsensors)#0.1 * np.ones(nsensors)
+		if self.Q_prior is None:
+			self.Q_prior = 0.05 * torch.randn(nsensors*(nsensors-1)//2)
+
+		self.tril_indices = torch.tril_indices(row=nsensors, col=nsensors, offset=-1)
+		self.Q = nn.Parameter(self.Q_prior)
+		self.delta = nn.Parameter(self.delta_prior)
+		self.M = nn.Parameter(torch.zeros(nsensors, nsensors), requires_grad=False)
+
+		self.STElayer = STEFunction.apply
+
+	def forward(self, z):
+		self.M[self.tril_indices[0], self.tril_indices[1]] = self.Q
+		M = self.M + self.M.T
+
+		y = z
+		x = torch.tanh(self.const * y)
+		for k in range(self.nsteps):
+			vel = torch.randn_like(z)
+			for i in range(self.L):
+				vel_half = vel + 0.5 * np.sqrt(self.xi) * self.const * (self.delta + torch.matmul(x, M)) * (1 - x**2)
+				y += np.sqrt(self.xi) * vel_half
+				x = torch.tanh(self.const * y)
+				vel = vel_half + 0.5 * np.sqrt(self.xi) * self.const * (self.delta + torch.matmul(x, M)) * (1 - x**2)
+
+		# x = STEFunction.apply(self.const * y)
+
+		x = self.STElayer(self.const * y)
+
+		# x = torch.tanh(self.const * y)
+
+		energy = torch.sum(0.5 * torch.matmul(x, M) * x + x * self.delta, -1)
+
+		return x, energy
