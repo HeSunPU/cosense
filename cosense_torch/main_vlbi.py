@@ -69,6 +69,7 @@ parser.add_argument("--n_epoch", default=100, type=int, help="number of training
 parser.add_argument("--sparsity_weight", default=1e-2, type=float, help="sparisty weight")
 parser.add_argument("--diversity_weight", default=1e-2, type=float, help="diversity weight")
 
+parser.add_argument("--dropout_rate", default=0.0, type=float, help="diversity weight")
 
 
 parser.add_argument("--ttype", default='nfft', type=str, help="fourier transform computation method")
@@ -288,7 +289,7 @@ if __name__ == "__main__":
 		dirty_im_encoder[6].bias.data.fill_(0)
 
 	# unit reconstructor
-	reconstructor = models.LOUPEUNet(in_chans=2, out_chans=1, chans=64, num_pool_layers=4, drop_prob=0.1).to(device)
+	reconstructor = models.LOUPEUNet(in_chans=2, out_chans=1, chans=64, num_pool_layers=4, drop_prob=args.dropout_rate).to(device)
 
 
 	#####################################################################################
